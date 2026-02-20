@@ -63,7 +63,10 @@ export default function StyleForge() {
         }),
       });
 
-      if (!response.ok) throw new Error('Styling failed');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Styling failed');
+      }
 
       const data = await response.json();
       setResult(data);
@@ -73,9 +76,9 @@ export default function StyleForge() {
         origin: { y: 0.6 },
         colors: ['#e11d48', '#fb7185', '#be123c']
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert('Failed to generate outfit. Please try again.');
+      alert(error.message || 'Failed to generate outfit. Please try again.');
     } finally {
       setLoading(false);
     }

@@ -1,17 +1,34 @@
 import { openai } from '@/lib/openai';
 import { NextResponse } from 'next/server';
 
+// Increase timeout for Vercel (up to 60 seconds if supported by account)
+export const maxDuration = 60;
+
 export async function POST(req: Request) {
+  console.log('--- STYLIST API START ---');
   try {
-    const { occasion, weather, styleVibe, customPreferences } = await req.json();
+    const body = await req.json();
+    console.log('Request body:', JSON.stringify(body, null, 2));
+
+    const { occasion, weather, styleVibe, customPreferences } = body;
 
     if (!occasion || !weather) {
+      console.warn('Validation failed: missing occasion or weather');
       return NextResponse.json(
         { error: 'Missing occasion or weather' },
         { status: 400 }
       );
     }
 
+    if (!process.env.OPENAI_API_KEY) {
+      console.error('OPENAI_API_KEY is missing from environment variables');
+      return NextResponse.json(
+        { error: 'OpenAI API key is not configured' },
+        { status: 500 }
+      );
+    }
+
+    console.log('Generating style analysis with GPT-4o-mini...');
     // 1. Generate Style Analysis using GPT-4o-mini
     const styleResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -54,7 +71,9 @@ export async function POST(req: Request) {
     });
 
     const analysis = JSON.parse(styleResponse.choices[0].message.content || '{}');
+    console.log('Style analysis complete:', JSON.stringify(analysis, null, 2));
 
+    console.log('Generating image with DALL-E 3 (this can take 15-20 seconds)...');
     // 2. Generate Style Visual using DALL-E 3
     const imageResponse = await openai.images.generate({
       model: 'dall-e-3',
@@ -65,11 +84,14 @@ export async function POST(req: Request) {
     });
 
     if (!imageResponse.data || imageResponse.data.length === 0) {
+      console.error('DALL-E 3 returned no image data');
       throw new Error('No style board was generated');
     }
 
     const imageUrl = imageResponse.data[0].url;
+    console.log('Image generation successful:', imageUrl?.substring(0, 50) + '...');
 
+    console.log('--- STYLIST API SUCCESS ---');
     return NextResponse.json({
       imageUrl,
       analysis: {
@@ -81,10 +103,16 @@ export async function POST(req: Request) {
     });
 
   } catch (error: any) {
-    console.error('Stylist error:', error);
+    console.error('--- STYLIST API ERROR ---');
+    console.error('Full error details:', error);
+    
+    let errorMessage = 'Failed to generate style';
+    if (error?.status === 401) errorMessage = 'Invalid OpenAI API Key';
+    if (error?.status === 429) errorMessage = 'OpenAI rate limit exceeded or insufficient credits';
+    
     return NextResponse.json(
-      { error: error?.message || 'Failed to generate style' },
-      { status: 500 }
+      { error: error?.message || errorMessage },
+      { status: error?.status || 500 }
     );
   }
 }
